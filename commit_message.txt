@@ -1,1 +1,1 @@
-fix(backend): Eliminar caché de pip y forzar actualización en Backend CI
+debug(backend): Imprimir conftest.py para depuración
