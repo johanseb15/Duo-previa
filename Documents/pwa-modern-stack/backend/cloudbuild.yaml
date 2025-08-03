@@ -1,0 +1,23 @@
+steps:
+# Construir la imagen del contenedor
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'gcr.io/my-gcp-project/my-cloud-run-service', '.']
+
+# Subir la imagen a Google Container Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/my-gcp-project/my-cloud-run-service']
+
+# Desplegar el contenedor en Cloud Run
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+    - 'run'
+    - 'deploy'
+    - 'my-cloud-run-service'
+    - '--image=gcr.io/my-gcp-project/my-cloud-run-service'
+    - '--region=us-central1' # Cambia a tu región preferida
+    - '--platform=managed'
+    - '--allow-unauthenticated'
+
+images:
+- 'gcr.io/my-gcp-project/my-cloud-run-service'
