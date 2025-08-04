@@ -1,6 +1,6 @@
 # Duo Previa - PWA con React, FastAPI y Vertex AI
 
-Este proyecto es una Progressive Web App (PWA) completa con un frontend en React, un backend en FastAPI y una integración con Google Cloud Vertex AI para capacidades de IA generativa. 
+Este proyecto es una Progressive Web App (PWA) completa con un frontend en React, un backend en FastAPI y una integración con Google Cloud Vertex AI para capacidades de IA generativa. git add README.md
 
 ## Arquitectura
 

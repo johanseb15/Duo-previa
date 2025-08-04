@@ -2,6 +2,7 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from typing import Optional
 import logging
+from utils.converters import to_object_id # Importar to_object_id para create_indexes
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,16 @@ async def migrate_data():
     """Run data migrations if needed"""
     db = database.database
     
-    # Example: Add restaurant_slug to existing documents
-    # This would run only once during deployment
-    
     try:
-        # Check if
+        pass # Added pass to fix IndentationError
+        # Example: Add restaurant_slug to existing documents
+        # This would run only once during deployment
+        
+    except Exception as e:
+        logger.error(f"Error during data migration: {e}")
+
+from bson import ObjectId
+
+def to_string_id(obj_id: ObjectId) -> str:
+    """Convert ObjectId to string"""
+    return str(obj_id)

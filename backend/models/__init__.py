@@ -1,8 +1,9 @@
 from pydantic import BaseModel, Field, EmailStr, validator
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+import datetime # Importar el módulo datetime completo
 from enum import Enum
 from bson import ObjectId
+from pydantic_core import core_schema
 
 # Utility class for ObjectId
 class PyObjectId(ObjectId):
@@ -17,8 +18,11 @@ class PyObjectId(ObjectId):
         return ObjectId(v)
 
     @classmethod
-    def __modify_schema__(cls, field_schema):
-        field_schema.update(type="string")
+    def __get_pydantic_json_schema__(cls, core_schema, handler):
+        # This is the correct method for Pydantic v2
+        json_schema = handler(core_schema)
+        json_schema.update(type="string")
+        return json_schema
 
 # Enums
 class OrderStatus(str, Enum):
@@ -44,11 +48,11 @@ class PaymentMethod(str, Enum):
 # ===== BASE MODELS =====
 class BaseDocument(BaseModel):
     id: Optional[PyObjectId] = Field(default_factory=PyObjectId, alias="_id")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow) # Usar datetime.datetime
+    updated_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow) # Usar datetime.datetime
 
     class Config:
-        allow_population_by_field_name = True
+        validate_by_name = True # Renombrado de allow_population_by_field_name
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
@@ -76,7 +80,7 @@ class RestaurantSettings(BaseModel):
 
 class Restaurant(BaseDocument):
     name: str
-    slug: str = Field(..., regex="^[a-z0-9-]+$")
+    slug: str = Field(..., pattern="^[a-z0-9-]+$") # Changed regex to pattern
     description: Optional[str] = None
     logo: str = ""
     email: EmailStr
@@ -89,7 +93,7 @@ class Restaurant(BaseDocument):
 
 class RestaurantCreate(BaseModel):
     name: str
-    slug: str = Field(..., regex="^[a-z0-9-]+$")
+    slug: str = Field(..., pattern="^[a-z0-9-]+$") # Changed regex to pattern
     description: Optional[str] = None
     logo: str = ""
     email: EmailStr
@@ -119,7 +123,7 @@ class RestaurantResponse(BaseModel):
     city: str
     settings: RestaurantSettings
     is_active: bool
-    created_at: datetime
+    created_at: datetime.datetime # Usar datetime.datetime
 
 # ===== USER MODELS =====
 class User(BaseDocument):
@@ -280,8 +284,8 @@ class Order(BaseDocument):
     status: OrderStatus = OrderStatus.PENDING
     payment_method: PaymentMethod = PaymentMethod.WHATSAPP
     is_delivery: bool = True
-    estimated_delivery_time: Optional[datetime] = None
-    actual_delivery_time: Optional[datetime] = None
+    estimated_delivery_time: Optional[datetime.datetime] = None # Usar datetime.datetime
+    actual_delivery_time: Optional[datetime.datetime] = None # Usar datetime.datetime
     notes: Optional[str] = None
 
 class OrderCreate(BaseModel):
@@ -311,11 +315,11 @@ class OrderResponse(BaseModel):
     status: OrderStatus
     payment_method: PaymentMethod
     is_delivery: bool
-    estimated_delivery_time: Optional[datetime]
-    actual_delivery_time: Optional[datetime]
+    estimated_delivery_time: Optional[datetime.datetime] # Usar datetime.datetime
+    actual_delivery_time: Optional[datetime.datetime] # Usar datetime.datetime
     notes: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime.datetime # Usar datetime.datetime
+    updated_at: datetime.datetime # Usar datetime.datetime
 
 # ===== AUTH MODELS =====
 class LoginRequest(BaseModel):
@@ -347,4 +351,15 @@ class WebhookEvent(BaseModel):
     event_type: str
     restaurant_slug: str
     data: Dict[str, Any]
-    timestamp: datetime = Field(default_factory=datetime.datetime.utcnow)
+    timestamp: datetime.datetime = Field(default_factory=datetime.datetime.utcnow) # Usar datetime.datetime
+
+__all__ = [
+    "PyObjectId", "OrderStatus", "UserRole", "PaymentMethod", "BaseDocument",
+    "RestaurantColors", "DeliveryZone", "RestaurantSettings", "Restaurant", "RestaurantCreate", "RestaurantUpdate", "RestaurantResponse",
+    "User", "UserCreate",
+    "Category", "CategoryCreate", "CategoryUpdate", "CategoryResponse",
+    "ProductSize", "ProductTopping", "Product", "ProductCreate", "ProductUpdate", "ProductResponse",
+    "OrderItemCustomization", "OrderItem", "CustomerInfo", "Order", "OrderCreate", "OrderStatusUpdate", "OrderResponse",
+    "LoginRequest", "RefreshTokenRequest", "TokenResponse",
+    "DashboardAnalytics", "WebhookEvent"
+]

@@ -3,7 +3,8 @@ import jwt
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from typing import Optional, Dict, Any
-from database import get_collection, to_object_id
+from db.mongo import get_collection
+from utils import to_object_id, to_string_id
 from models import TokenResponse, User # Importar User para la simulación de DB
 import secrets
 import logging

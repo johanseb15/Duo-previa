@@ -1,9 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timedelta
-from db.mongo import get_collection
-from utils import to_object_id, to_string_id, with_transaction
-from models import *
-from services.auth import AuthService
+from db.mongo import database
+from utils import to_object_id, to_string_id
 import logging
 import uuid
 
@@ -54,10 +52,11 @@ class RestaurantService:
                 # Create default categories
                 categories_service = CategoryService()
                 default_categories = [
-                    {"name": " Pizzas", "icon": "", "display_order": 1},
-                    {"name": " Ensaladas", "icon": "", "display_order": 2},
-                    {"name": " Bebidas", "icon": "", "display_order": 3},
-                    {"name": " Postres", "icon": "", "display_order": 4},
+                    {"name": "Pizzas", "icon": "🍕", "display_order": 1},
+                    {"name": "Hamburguesas", "icon": "🍔", "display_order": 2},
+                    {"name": "Empanadas", "icon": "🥟", "display_order": 3},
+                    {"name": "Bebidas", "icon": "🥤", "display_order": 4},
+                    {"name": "Postres", "icon": "🍰", "display_order": 5},
                 ]
                 
                 for cat_data in default_categories:
@@ -225,19 +224,20 @@ class ProductService:
     async def create_product(self, restaurant_slug: str, product_data: ProductCreate) -> ProductResponse:
         """Create new product"""
         try:
-            # Get restaurant
-            restaurant_service = RestaurantService()
-            restaurant = await restaurant_service.get_by_slug(restaurant_slug)
-            if not restaurant:
+            # Get restaurant_id from restaurant_slug (assuming it exists)
+            # This could be optimized by passing restaurant_id directly if already fetched
+            restaurant_doc = await database.restaurants.find_one({"slug": restaurant_slug})
+            if not restaurant_doc:
                 raise ValueError("Restaurant not found")
-            
+            restaurant_id = restaurant_doc["_id"]
+
             product_doc = {
                 "name": product_data.name,
                 "description": product_data.description,
                 "price": product_data.price,
                 "image": product_data.image,
                 "category_id": to_object_id(product_data.category_id),
-                "restaurant_id": to_object_id(restaurant.id),
+                "restaurant_id": restaurant_id,
                 "restaurant_slug": restaurant_slug,
                 "sizes": [size.dict() for size in product_data.sizes],
                 "toppings": [topping.dict() for topping in product_data.toppings],
@@ -342,9 +342,6 @@ class ProductService:
                     else:
                         update_dict[field] = value
             
-            if not update_dict:
-                return True
-                
             update_dict["updated_at"] = datetime.utcnow()
             
             result = await self.collection.update_one(
@@ -372,9 +369,19 @@ class ProductService:
             logger.error(f"Error deleting product: {e}")
             return False
 
+from typing import Optional, List
+from models import Order, OrderCreate, OrderStatusUpdate, OrderResponse, CustomerInfo, OrderItem, OrderStatus, DashboardAnalytics
+from db.mongo import database
+from utils import to_object_id, to_string_id
+from datetime import datetime, timedelta
+import logging
+import uuid
+
+logger = logging.getLogger(__name__)
+
 class OrderService:
     def __init__(self):
-        self.collection = get_collection("orders")
+        self.collection = database.orders
 
     def generate_order_number(self) -> str:
         """Generate unique order number"""
@@ -410,8 +417,8 @@ class OrderService:
                 "subtotal": subtotal,
                 "delivery_fee": delivery_fee,
                 "total": total,
-                "status": OrderStatus.PENDING,
-                "payment_method": order_data.payment_method,
+                "status": OrderStatus.PENDING.value, # Store enum value
+                "payment_method": order_data.payment_method.value, # Store enum value
                 "is_delivery": order_data.is_delivery,
                 "estimated_delivery_time": estimated_delivery,
                 "notes": order_data.notes,
@@ -424,6 +431,8 @@ class OrderService:
             order_doc["id"] = str(result.inserted_id)
             order_doc["customer"] = CustomerInfo(**order_doc["customer"])
             order_doc["items"] = [OrderItem(**item) for item in order_doc["items"]]
+            order_doc["status"] = OrderStatus(order_doc["status"]) # Convert back to enum
+            order_doc["payment_method"] = OrderStatus(order_doc["payment_method"]) # Convert back to enum
             
             return OrderResponse(**order_doc)
             
@@ -450,6 +459,8 @@ class OrderService:
                 order["id"] = str(order["_id"])
                 order["customer"] = CustomerInfo(**order["customer"])
                 order["items"] = [OrderItem(**item) for item in order["items"]]
+                order["status"] = OrderStatus(order["status"]) # Convert back to enum
+                order["payment_method"] = OrderStatus(order["payment_method"]) # Convert back to enum
                 orders.append(OrderResponse(**order))
                 
             return orders
@@ -472,6 +483,8 @@ class OrderService:
             order["id"] = str(order["_id"])
             order["customer"] = CustomerInfo(**order["customer"])
             order["items"] = [OrderItem(**item) for item in order["items"]]
+            order["status"] = OrderStatus(order["status"]) # Convert back to enum
+            order["payment_method"] = OrderStatus(order["payment_method"]) # Convert back to enum
             
             return OrderResponse(**order)
             

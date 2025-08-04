@@ -8,10 +8,17 @@ import os
 from dotenv import load_dotenv
 
 # Import modules
-from database import database, init_db
-from models import *
-from auth import AuthService
-from services import RestaurantService, ProductService, OrderService, CategoryService
+from db.mongo import database, init_db, close_db
+from models import (
+    TokenResponse, LoginRequest, RefreshTokenRequest, RestaurantResponse, RestaurantUpdate,
+    CategoryResponse, CategoryCreate, CategoryUpdate, ProductResponse, ProductCreate, ProductUpdate,
+    OrderResponse, OrderCreate, OrderStatusUpdate, RestaurantCreate
+)
+from services.auth import AuthService
+from services.restaurants import RestaurantService
+from services.products import ProductService
+from services.orders import OrderService
+from services.categories import CategoryService
 
 load_dotenv()
 
@@ -31,7 +38,7 @@ async def lifespan(app: FastAPI):
     await init_db()
     yield
     # Shutdown
-    await database.close()
+    await close_db()
 
 app = FastAPI(
     title="Food Delivery Multi-Tenant API",
