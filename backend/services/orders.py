@@ -1,387 +1,16 @@
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime, timedelta
-from db.mongo import database
-from utils import to_object_id, to_string_id
-import logging
+from db.mongo import get_collection
+from utils.converters import to_object_id
+from models import OrderCreate, OrderResponse, OrderStatus, CustomerInfo, OrderItem, DashboardAnalytics
 import uuid
-
-logger = logging.getLogger(__name__)
-
-class RestaurantService:
-    def __init__(self):
-        self.collection = get_collection("restaurants")
-        self.auth_service = AuthService()
-
-    async def create_restaurant(self, restaurant_data: RestaurantCreate) -> RestaurantResponse:
-        """Create new restaurant with admin user"""
-        try:
-            async def operation(session):
-                # Check if slug is unique
-                existing = await self.collection.find_one({"slug": restaurant_data.slug})
-                if existing:
-                    raise ValueError("Restaurant slug already exists")
-                
-                # Create restaurant
-                restaurant_doc = {
-                    "name": restaurant_data.name,
-                    "slug": restaurant_data.slug,
-                    "description": restaurant_data.description,
-                    "logo": restaurant_data.logo,
-                    "email": restaurant_data.email,
-                    "phone": restaurant_data.phone,
-                    "address": restaurant_data.address,
-                    "city": restaurant_data.city,
-                    "country": restaurant_data.country,
-                    "settings": RestaurantSettings().dict(),
-                    "is_active": True,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
-                }
-                
-                result = await self.collection.insert_one(restaurant_doc, session=session)
-                restaurant_id = result.inserted_id
-                
-                # Create admin user
-                await self.auth_service.create_user(
-                    username=restaurant_data.admin_username,
-                    password=restaurant_data.admin_password,
-                    restaurant_slug=restaurant_data.slug,
-                    role="admin"
-                )
-                
-                # Create default categories
-                categories_service = CategoryService()
-                default_categories = [
-                    {"name": "Pizzas", "icon": "🍕", "display_order": 1},
-                    {"name": "Hamburguesas", "icon": "🍔", "display_order": 2},
-                    {"name": "Empanadas", "icon": "🥟", "display_order": 3},
-                    {"name": "Bebidas", "icon": "🥤", "display_order": 4},
-                    {"name": "Postres", "icon": "🍰", "display_order": 5},
-                ]
-                
-                for cat_data in default_categories:
-                    await categories_service.create_category(
-                        restaurant_data.slug,
-                        CategoryCreate(**cat_data)
-                    )
-                
-                # Return created restaurant
-                restaurant_doc["id"] = str(restaurant_id)
-                restaurant_doc["settings"] = RestaurantSettings(**restaurant_doc["settings"])
-                
-                return RestaurantResponse(**restaurant_doc)
-            
-            return await with_transaction(operation)
-            
-        except Exception as e:
-            logger.error(f"Error creating restaurant: {e}")
-            raise
-
-    async def get_by_slug(self, slug: str) -> Optional[RestaurantResponse]:
-        """Get restaurant by slug"""
-        try:
-            restaurant = await self.collection.find_one({"slug": slug, "is_active": True})
-            if not restaurant:
-                return None
-                
-            restaurant["id"] = str(restaurant["_id"])
-            restaurant["settings"] = RestaurantSettings(**restaurant["settings"])
-            
-            return RestaurantResponse(**restaurant)
-            
-        except Exception as e:
-            logger.error(f"Error getting restaurant by slug: {e}")
-            return None
-
-    async def update_restaurant(self, slug: str, update_data: RestaurantUpdate) -> bool:
-        """Update restaurant"""
-        try:
-            update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
-            if not update_dict:
-                return True
-                
-            update_dict["updated_at"] = datetime.utcnow()
-            
-            result = await self.collection.update_one(
-                {"slug": slug},
-                {"$set": update_dict}
-            )
-            
-            return result.modified_count > 0
-            
-        except Exception as e:
-            logger.error(f"Error updating restaurant: {e}")
-            return False
-
-    async def get_all_restaurants(self) -> List[RestaurantResponse]:
-        """Get all restaurants (superadmin only)"""
-        try:
-            cursor = self.collection.find({}).sort("created_at", -1)
-            restaurants = []
-            
-            async for restaurant in cursor:
-                restaurant["id"] = str(restaurant["_id"])
-                restaurant["settings"] = RestaurantSettings(**restaurant["settings"])
-                restaurants.append(RestaurantResponse(**restaurant))
-                
-            return restaurants
-            
-        except Exception as e:
-            logger.error(f"Error getting all restaurants: {e}")
-            return []
-
-class CategoryService:
-    def __init__(self):
-        self.collection = get_collection("categories")
-
-    async def create_category(self, restaurant_slug: str, category_data: CategoryCreate) -> CategoryResponse:
-        """Create new category"""
-        try:
-            # Get restaurant
-            restaurant_service = RestaurantService()
-            restaurant = await restaurant_service.get_by_slug(restaurant_slug)
-            if not restaurant:
-                raise ValueError("Restaurant not found")
-            
-            category_doc = {
-                "name": category_data.name,
-                "icon": category_data.icon,
-                "description": category_data.description,
-                "restaurant_id": to_object_id(restaurant.id),
-                "restaurant_slug": restaurant_slug,
-                "display_order": category_data.display_order,
-                "is_active": True,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-            
-            result = await self.collection.insert_one(category_doc)
-            
-            category_doc["id"] = str(result.inserted_id)
-            return CategoryResponse(**category_doc)
-            
-        except Exception as e:
-            logger.error(f"Error creating category: {e}")
-            raise
-
-    async def get_categories_by_restaurant(self, restaurant_slug: str) -> List[CategoryResponse]:
-        """Get categories by restaurant"""
-        try:
-            cursor = self.collection.find({
-                "restaurant_slug": restaurant_slug,
-                "is_active": True
-            }).sort("display_order", 1)
-            
-            categories = []
-            async for category in cursor:
-                category["id"] = str(category["_id"])
-                categories.append(CategoryResponse(**category))
-                
-            return categories
-            
-        except Exception as e:
-            logger.error(f"Error getting categories: {e}")
-            return []
-
-    async def update_category(self, category_id: str, update_data: CategoryUpdate) -> bool:
-        """Update category"""
-        try:
-            update_dict = {k: v for k, v in update_data.dict().items() if v is not None}
-            if not update_dict:
-                return True
-                
-            update_dict["updated_at"] = datetime.utcnow()
-            
-            result = await self.collection.update_one(
-                {"_id": to_object_id(category_id)},
-                {"$set": update_dict}
-            )
-            
-            return result.modified_count > 0
-            
-        except Exception as e:
-            logger.error(f"Error updating category: {e}")
-            return False
-
-    async def delete_category(self, category_id: str) -> bool:
-        """Soft delete category"""
-        try:
-            result = await self.collection.update_one(
-                {"_id": to_object_id(category_id)},
-                {"$set": {"is_active": False, "updated_at": datetime.utcnow()}}
-            )
-            
-            return result.modified_count > 0
-            
-        except Exception as e:
-            logger.error(f"Error deleting category: {e}")
-            return False
-
-class ProductService:
-    def __init__(self):
-        self.collection = get_collection("products")
-
-    async def create_product(self, restaurant_slug: str, product_data: ProductCreate) -> ProductResponse:
-        """Create new product"""
-        try:
-            # Get restaurant_id from restaurant_slug (assuming it exists)
-            # This could be optimized by passing restaurant_id directly if already fetched
-            restaurant_doc = await database.restaurants.find_one({"slug": restaurant_slug})
-            if not restaurant_doc:
-                raise ValueError("Restaurant not found")
-            restaurant_id = restaurant_doc["_id"]
-
-            product_doc = {
-                "name": product_data.name,
-                "description": product_data.description,
-                "price": product_data.price,
-                "image": product_data.image,
-                "category_id": to_object_id(product_data.category_id),
-                "restaurant_id": restaurant_id,
-                "restaurant_slug": restaurant_slug,
-                "sizes": [size.dict() for size in product_data.sizes],
-                "toppings": [topping.dict() for topping in product_data.toppings],
-                "is_available": True,
-                "is_popular": product_data.is_popular,
-                "is_vegetarian": product_data.is_vegetarian,
-                "is_vegan": product_data.is_vegan,
-                "allergens": product_data.allergens,
-                "preparation_time": product_data.preparation_time,
-                "rating": 5.0,
-                "rating_count": 0,
-                "created_at": datetime.utcnow(),
-                "updated_at": datetime.utcnow()
-            }
-            
-            result = await self.collection.insert_one(product_doc)
-            
-            product_doc["id"] = str(result.inserted_id)
-            product_doc["category_id"] = str(product_doc["category_id"])
-            product_doc["sizes"] = [ProductSize(**size) for size in product_doc["sizes"]]
-            product_doc["toppings"] = [ProductTopping(**topping) for topping in product_doc["toppings"]]
-            
-            return ProductResponse(**product_doc)
-            
-        except Exception as e:
-            logger.error(f"Error creating product: {e}")
-            raise
-
-    async def get_products_by_restaurant(
-        self,
-        restaurant_slug: str,
-        category_id: Optional[str] = None,
-        search: Optional[str] = None,
-        popular_only: bool = False
-    ) -> List[ProductResponse]:
-        """Get products by restaurant with filters"""
-        try:
-            query = {
-                "restaurant_slug": restaurant_slug,
-                "is_available": True
-            }
-            
-            if category_id:
-                query["category_id"] = to_object_id(category_id)
-                
-            if search:
-                query["name"] = {"$regex": search, "$options": "i"}
-                
-            if popular_only:
-                query["is_popular"] = True
-            
-            cursor = self.collection.find(query).sort("name", 1)
-            
-            products = []
-            async for product in cursor:
-                product["id"] = str(product["_id"])
-                product["category_id"] = str(product["category_id"])
-                product["sizes"] = [ProductSize(**size) for size in product.get("sizes", [])]
-                product["toppings"] = [ProductTopping(**topping) for topping in product.get("toppings", [])]
-                products.append(ProductResponse(**product))
-                
-            return products
-            
-        except Exception as e:
-            logger.error(f"Error getting products: {e}")
-            return []
-
-    async def get_product_by_id(self, product_id: str, restaurant_slug: str) -> Optional[ProductResponse]:
-        """Get product by ID"""
-        try:
-            product = await self.collection.find_one({
-                "_id": to_object_id(product_id),
-                "restaurant_slug": restaurant_slug,
-                "is_available": True
-            })
-            
-            if not product:
-                return None
-                
-            product["id"] = str(product["_id"])
-            product["category_id"] = str(product["category_id"])
-            product["sizes"] = [ProductSize(**size) for size in product.get("sizes", [])]
-            product["toppings"] = [ProductTopping(**topping) for topping in product.get("toppings", [])]
-            
-            return ProductResponse(**product)
-            
-        except Exception as e:
-            logger.error(f"Error getting product: {e}")
-            return None
-
-    async def update_product(self, product_id: str, update_data: ProductUpdate) -> bool:
-        """Update product"""
-        try:
-            update_dict = {}
-            
-            for field, value in update_data.dict().items():
-                if value is not None:
-                    if field == "category_id":
-                        update_dict[field] = to_object_id(value)
-                    elif field in ["sizes", "toppings"]:
-                        update_dict[field] = [item.dict() for item in value] if value else []
-                    else:
-                        update_dict[field] = value
-            
-            update_dict["updated_at"] = datetime.utcnow()
-            
-            result = await self.collection.update_one(
-                {"_id": to_object_id(product_id)},
-                {"$set": update_dict}
-            )
-            
-            return result.modified_count > 0
-            
-        except Exception as e:
-            logger.error(f"Error updating product: {e}")
-            return False
-
-    async def delete_product(self, product_id: str) -> bool:
-        """Soft delete product"""
-        try:
-            result = await self.collection.update_one(
-                {"_id": to_object_id(product_id)},
-                {"$set": {"is_available": False, "updated_at": datetime.utcnow()}}
-            )
-            
-            return result.modified_count > 0
-            
-        except Exception as e:
-            logger.error(f"Error deleting product: {e}")
-            return False
-
-from typing import Optional, List
-from models import Order, OrderCreate, OrderStatusUpdate, OrderResponse, CustomerInfo, OrderItem, OrderStatus, DashboardAnalytics
-from db.mongo import database
-from utils import to_object_id, to_string_id
-from datetime import datetime, timedelta
 import logging
-import uuid
 
 logger = logging.getLogger(__name__)
 
 class OrderService:
     def __init__(self):
-        self.collection = database.orders
+        self.collection = get_collection("orders")
 
     def generate_order_number(self) -> str:
         """Generate unique order number"""
@@ -392,7 +21,7 @@ class OrderService:
     async def create_order(self, restaurant_slug: str, order_data: OrderCreate) -> OrderResponse:
         """Create new order"""
         try:
-            # Get restaurant
+            from services.restaurants import RestaurantService
             restaurant_service = RestaurantService()
             restaurant = await restaurant_service.get_by_slug(restaurant_slug)
             if not restaurant:
@@ -417,8 +46,8 @@ class OrderService:
                 "subtotal": subtotal,
                 "delivery_fee": delivery_fee,
                 "total": total,
-                "status": OrderStatus.PENDING.value, # Store enum value
-                "payment_method": order_data.payment_method.value, # Store enum value
+                "status": OrderStatus.PENDING,
+                "payment_method": order_data.payment_method,
                 "is_delivery": order_data.is_delivery,
                 "estimated_delivery_time": estimated_delivery,
                 "notes": order_data.notes,
@@ -431,8 +60,6 @@ class OrderService:
             order_doc["id"] = str(result.inserted_id)
             order_doc["customer"] = CustomerInfo(**order_doc["customer"])
             order_doc["items"] = [OrderItem(**item) for item in order_doc["items"]]
-            order_doc["status"] = OrderStatus(order_doc["status"]) # Convert back to enum
-            order_doc["payment_method"] = OrderStatus(order_doc["payment_method"]) # Convert back to enum
             
             return OrderResponse(**order_doc)
             
@@ -448,7 +75,10 @@ class OrderService:
     ) -> List[OrderResponse]:
         """Get orders by restaurant"""
         try:
-            query = {"restaurant_slug": restaurant_slug}
+            query = {
+                "restaurant_slug": restaurant_slug,
+                "is_active": True
+            }
             if status_filter:
                 query["status"] = status_filter
             
@@ -459,8 +89,6 @@ class OrderService:
                 order["id"] = str(order["_id"])
                 order["customer"] = CustomerInfo(**order["customer"])
                 order["items"] = [OrderItem(**item) for item in order["items"]]
-                order["status"] = OrderStatus(order["status"]) # Convert back to enum
-                order["payment_method"] = OrderStatus(order["payment_method"]) # Convert back to enum
                 orders.append(OrderResponse(**order))
                 
             return orders
@@ -474,7 +102,8 @@ class OrderService:
         try:
             order = await self.collection.find_one({
                 "_id": to_object_id(order_id),
-                "restaurant_slug": restaurant_slug
+                "restaurant_slug": restaurant_slug,
+                "is_active": True
             })
             
             if not order:
@@ -483,8 +112,6 @@ class OrderService:
             order["id"] = str(order["_id"])
             order["customer"] = CustomerInfo(**order["customer"])
             order["items"] = [OrderItem(**item) for item in order["items"]]
-            order["status"] = OrderStatus(order["status"]) # Convert back to enum
-            order["payment_method"] = OrderStatus(order["payment_method"]) # Convert back to enum
             
             return OrderResponse(**order)
             
@@ -570,18 +197,3 @@ class OrderService:
                     "count": {"$sum": 1}
                 }},
                 {"$sort": {"_id": 1}}
-            ]
-            hourly_orders = await self.collection.aggregate(hourly_orders_pipeline).to_list(length=None)
-            
-            return DashboardAnalytics(
-                total_orders_today=total_orders_today,
-                total_revenue_today=total_revenue_today,
-                pending_orders=pending_orders,
-                popular_products=popular_products,
-                recent_orders=recent_orders,
-                hourly_orders=hourly_orders
-            )
-            
-        except Exception as e:
-            logger.error(f"Error getting dashboard analytics: {e}")
-            raise

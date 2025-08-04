@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    environment:
+      - MONGODB_URL=mongodb://mongo:27017/duo-previa
+      - SECRET_KEY=${SECRET_KEY}
+      - FRONTEND_URL=https://tudominio.com
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+    secrets:
+      - secret_key
+
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile
+    networks:
+      - app-network
+
+  mongo:
+    image: mongo:5.0
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - app-network
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
+
+secrets:
+  secret_key:
+    external: true
+
+volumes:
+  mongo-data:

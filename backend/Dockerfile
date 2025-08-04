@@ -1,20 +1,28 @@
-# Use an official Python runtime as a parent image
-FROM python:3.9-slim
+# Multi-stage build for production
+FROM python:3.11-slim as builder
 
-# Set the working directory in the container
 WORKDIR /app
 
-# Copy the dependencies file to the working directory
+# Install dependencies
 COPY requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
 
-# Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+FROM python:3.11-slim as base
 
-# Copy the rest of the application's code to the working directory
+WORKDIR /app
+
+# Copy only necessary files from builder stage
+COPY --from=builder /wheels /wheels
+COPY --from=builder /app/requirements.txt .
+RUN pip install --no-cache-dir --no-index --find-links=/wheels -r requirements.txt
+
+# Copy application code
 COPY . .
 
-# Expose the port the app runs on
-EXPOSE 8080
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8000
 
-# Run the application
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+EXPOSE 8000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,33 +1,30 @@
-from typing import Optional, List
-from models import Category, CategoryCreate, CategoryUpdate, CategoryResponse
-from db.mongo import database
-from utils import to_object_id, to_string_id
-from utils import to_object_id, to_string_id
-from utils import to_object_id
-from utils import to_object_id
+from typing import List
 from datetime import datetime
+from db.mongo import get_collection
+from utils.converters import to_object_id
+from models import CategoryCreate, CategoryUpdate, CategoryResponse
 import logging
 
 logger = logging.getLogger(__name__)
 
 class CategoryService:
     def __init__(self):
-        self.collection = database.categories
+        self.collection = get_collection("categories")
 
     async def create_category(self, restaurant_slug: str, category_data: CategoryCreate) -> CategoryResponse:
         """Create new category"""
         try:
-            # Get restaurant_id from restaurant_slug (assuming it exists)
-            restaurant_doc = await database.restaurants.find_one({"slug": restaurant_slug})
-            if not restaurant_doc:
+            from services.restaurants import RestaurantService
+            restaurant_service = RestaurantService()
+            restaurant = await restaurant_service.get_by_slug(restaurant_slug)
+            if not restaurant:
                 raise ValueError("Restaurant not found")
-            restaurant_id = restaurant_doc["_id"]
-
+            
             category_doc = {
                 "name": category_data.name,
                 "icon": category_data.icon,
                 "description": category_data.description,
-                "restaurant_id": restaurant_id,
+                "restaurant_id": to_object_id(restaurant.id),
                 "restaurant_slug": restaurant_slug,
                 "display_order": category_data.display_order,
                 "is_active": True,

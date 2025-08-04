@@ -295,7 +295,10 @@ class OrderCreate(BaseModel):
     is_delivery: bool = True
     notes: Optional[str] = None
 
-    @validator('items')
+    from pydantic import field_validator
+
+    @field_validator('items')
+    @classmethod
     def items_not_empty(cls, v):
         if not v:
             raise ValueError('Order must have at least one item')
