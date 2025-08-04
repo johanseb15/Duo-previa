@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: 'Debug GCP_SA_KEY'
+        run: echo "GCP_SA_KEY length: ${{ secrets.GCP_SA_KEY.length }}"
+
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
