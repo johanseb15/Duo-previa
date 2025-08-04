@@ -18,13 +18,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 'Debug GCP_SA_KEY'
-        run: echo "GCP_SA_KEY length: ${{ secrets.GCP_SA_KEY.length }}"
+      - name: 'Write GCP Service Account Key'
+        run: echo "${{ secrets.GCP_SA_KEY }}" > gcp-key.json
+        shell: bash
 
       - id: 'auth'
         uses: 'google-github-actions/auth@v2'
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: 'gcp-key.json'
 
       - name: 'Set up Cloud SDK'
         uses: 'google-github-actions/setup-gcloud@v2'
