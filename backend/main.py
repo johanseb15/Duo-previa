@@ -1,38 +1,355 @@
-from fastapi import FastAPI
-# This is a minor change to trigger CI/CD for backend
-from pydantic import BaseModel
-import vertexai
-from vertexai.generative_models import GenerativeModel
+from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from contextlib import asynccontextmanager
+import uvicorn
+from typing import Optional, List
 import os
 from dotenv import load_dotenv
 
+# Import modules
+from database import database, init_db
+from models import *
+from auth import AuthService
+from services import RestaurantService, ProductService, OrderService, CategoryService
+
 load_dotenv()
 
-app = FastAPI()
+# Initialize services
+auth_service = AuthService()
+restaurant_service = RestaurantService()
+product_service = ProductService()
+order_service = OrderService()
+category_service = CategoryService()
 
-class Prompt(BaseModel):
-    text: str
+# Security
+security = HTTPBearer()
 
-# Initialize Vertex AI
-try:
-    vertexai.init(project=os.getenv("GCP_PROJECT_ID"), location=os.getenv("GCP_REGION"))
-    gen_model = GenerativeModel("gemini-1.0-pro")
-    print("Vertex AI initialized successfully.")
-except Exception as e:
-    print(f"Error initializing Vertex AI: {e}")
-    gen_model = None
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    await init_db()
+    yield
+    # Shutdown
+    await database.close()
 
-@app.get("/api/message")
-def get_message():
-    return {"message": "Hello from the backend!"}
+app = FastAPI(
+    title="Food Delivery Multi-Tenant API",
+    description="API para plataforma de pedidos multi-inquilino",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
-@app.post("/api/generate")
-async def generate_text(prompt: Prompt):
-    if not gen_model:
-        return {"error": "Vertex AI not initialized"}, 500
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # En producción: dominios específicos
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-    try:
-        response = gen_model.generate_content(prompt.text)
-        return {"response": response.text}
-    except Exception as e:
-        return {"error": str(e)}, 500
+# Dependency to get current user
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    user = await auth_service.verify_token(token)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
+    return user
+
+# Root endpoint
+@app.get("/")
+async def root():
+    return {"status": "Food Delivery API Running", "version": "1.0.0"}
+
+# Health check
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "database": "connected"}
+
+# ===== AUTH ENDPOINTS =====
+@app.post("/auth/login", response_model=TokenResponse)
+async def login(login_data: LoginRequest):
+    """Login para administradores de restaurante"""
+    result = await auth_service.authenticate_user(
+        login_data.username, 
+        login_data.password, 
+        login_data.restaurant_slug
+    )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Credenciales incorrectas"
+        )
+    return result
+
+@app.post("/auth/refresh", response_model=TokenResponse)
+async def refresh_token(refresh_data: RefreshTokenRequest):
+    """Renovar token de acceso"""
+    result = await auth_service.refresh_access_token(refresh_data.refresh_token)
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token inválido"
+        )
+    return result
+
+# ===== RESTAURANT ENDPOINTS =====
+@app.get("/api/restaurants/{slug}", response_model=RestaurantResponse)
+async def get_restaurant_by_slug(slug: str):
+    """Obtener información del restaurante por slug"""
+    restaurant = await restaurant_service.get_by_slug(slug)
+    if not restaurant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Restaurante no encontrado"
+        )
+    return restaurant
+
+@app.put("/api/restaurants/{slug}")
+async def update_restaurant(
+    slug: str,
+    restaurant_data: RestaurantUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Actualizar configuración del restaurante"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para este restaurante"
+        )
+    
+    updated = await restaurant_service.update_restaurant(slug, restaurant_data)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Restaurante no encontrado"
+        )
+    return {"message": "Restaurante actualizado exitosamente"}
+
+# ===== CATEGORY ENDPOINTS =====
+@app.get("/api/{slug}/categories", response_model=List[CategoryResponse])
+async def get_categories(slug: str):
+    """Obtener categorías del restaurante"""
+    categories = await category_service.get_categories_by_restaurant(slug)
+    return categories
+
+@app.post("/api/{slug}/categories", response_model=CategoryResponse)
+async def create_category(
+    slug: str,
+    category_data: CategoryCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Crear nueva categoría"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para este restaurante"
+        )
+    
+    category = await category_service.create_category(slug, category_data)
+    return category
+
+@app.put("/api/{slug}/categories/{category_id}")
+async def update_category(
+    slug: str,
+    category_id: str,
+    category_data: CategoryUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Actualizar categoría"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    updated = await category_service.update_category(category_id, category_data)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return {"message": "Categoría actualizada"}
+
+@app.delete("/api/{slug}/categories/{category_id}")
+async def delete_category(
+    slug: str,
+    category_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Eliminar categoría"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    deleted = await category_service.delete_category(category_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return {"message": "Categoría eliminada"}
+
+# ===== PRODUCT ENDPOINTS =====
+@app.get("/api/{slug}/products", response_model=List[ProductResponse])
+async def get_products(
+    slug: str,
+    category_id: Optional[str] = None,
+    search: Optional[str] = None,
+    popular_only: bool = False
+):
+    """Obtener productos del restaurante"""
+    products = await product_service.get_products_by_restaurant(
+        slug, category_id, search, popular_only
+    )
+    return products
+
+@app.get("/api/{slug}/products/{product_id}", response_model=ProductResponse)
+async def get_product(slug: str, product_id: str):
+    """Obtener producto específico"""
+    product = await product_service.get_product_by_id(product_id, slug)
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Producto no encontrado"
+        )
+    return product
+
+@app.post("/api/{slug}/products", response_model=ProductResponse)
+async def create_product(
+    slug: str,
+    product_data: ProductCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Crear nuevo producto"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permisos para este restaurante"
+        )
+    
+    product = await product_service.create_product(slug, product_data)
+    return product
+
+@app.put("/api/{slug}/products/{product_id}")
+async def update_product(
+    slug: str,
+    product_id: str,
+    product_data: ProductUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Actualizar producto"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    updated = await product_service.update_product(product_id, product_data)
+    if not updated:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Producto no encontrado"
+        )
+    return {"message": "Producto actualizado exitosamente"}
+
+@app.delete("/api/{slug}/products/{product_id}")
+async def delete_product(
+    slug: str,
+    product_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Eliminar producto"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    deleted = await product_service.delete_product(product_id)
+    if not deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return {"message": "Producto eliminado"}
+
+# ===== ORDER ENDPOINTS =====
+@app.post("/api/{slug}/orders", response_model=OrderResponse)
+async def create_order(slug: str, order_data: OrderCreate):
+    """Crear nuevo pedido"""
+    order = await order_service.create_order(slug, order_data)
+    return order
+
+@app.get("/api/{slug}/orders", response_model=List[OrderResponse])
+async def get_orders(
+    slug: str,
+    status_filter: Optional[str] = None,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user)
+):
+    """Obtener pedidos del restaurante"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    orders = await order_service.get_orders_by_restaurant(slug, status_filter, limit)
+    return orders
+
+@app.get("/api/{slug}/orders/{order_id}", response_model=OrderResponse)
+async def get_order(
+    slug: str,
+    order_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Obtener pedido específico"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    order = await order_service.get_order_by_id(order_id, slug)
+    if not order:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return order
+
+@app.put("/api/{slug}/orders/{order_id}/status")
+async def update_order_status(
+    slug: str,
+    order_id: str,
+    status_data: OrderStatusUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Actualizar estado del pedido"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    updated = await order_service.update_order_status(order_id, status_data.status)
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    return {"message": "Estado del pedido actualizado"}
+
+# ===== ANALYTICS ENDPOINTS =====
+@app.get("/api/{slug}/analytics/dashboard")
+async def get_dashboard_analytics(
+    slug: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Obtener analíticas del dashboard"""
+    if current_user["restaurant_slug"] != slug:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    analytics = await order_service.get_dashboard_analytics(slug)
+    return analytics
+
+# ===== SUPERADMIN ENDPOINTS =====
+@app.post("/superadmin/restaurants", response_model=RestaurantResponse)
+async def create_restaurant(
+    restaurant_data: RestaurantCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Crear nuevo restaurante (solo superadmin)"""
+    if current_user["role"] != "superadmin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    restaurant = await restaurant_service.create_restaurant(restaurant_data)
+    return restaurant
+
+@app.get("/superadmin/restaurants", response_model=List[RestaurantResponse])
+async def get_all_restaurants(current_user: dict = Depends(get_current_user)):
+    """Obtener todos los restaurantes (solo superadmin)"""
+    if current_user["role"] != "superadmin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN)
+    
+    restaurants = await restaurant_service.get_all_restaurants()
+    return restaurants
+
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=int(os.getenv("PORT", 8000)),
+        reload=True if os.getenv("ENVIRONMENT") == "development" else False
+    )
