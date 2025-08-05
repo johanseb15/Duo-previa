@@ -14,10 +14,10 @@ function Test-Port {
 
 function Test-MongoConnection {
     try {
-        $envVars = Get-Content "../backend/.env" | Where-Object { $_ -match "^MONGODB_URL=" }
+        $envVars = Get-Content "./backend/.env" | Where-Object { $_ -match "^MONGODB_URL=" }
         $mongoUrl = $envVars -replace "MONGODB_URL=", ""
-        python -c "from motor.motor_asyncio import AsyncIOMotorClient; import asyncio; async def test(): client = AsyncIOMotorClient('$mongoUrl'); await client.server_info(); print('✅ MongoDB conectado'); asyncio.run(test())"
-        return $true
+        python -c "from motor.motor_asyncio import AsyncIOMotorClient; import asyncio; async def test(): client = AsyncIOMotorClient('$mongoUrl'); await client.server_info(); print('✅ MongoDB conectado'); asyncio.run(test())"        
+return $true
     } catch {
         Write-Host "❌ Error al conectar con MongoDB" -ForegroundColor Red
         return $false
@@ -42,7 +42,7 @@ if (-Not (Test-Path ".env")) {
 # Lanzar backend
 Write-Host "`n Lanzando backend..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "cd backend; uvicorn main:app --reload --host 0.0.0.0 --port 8000"
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 10
 if (Test-Port -Port 8000) {
     Write-Host "✅ Backend corriendo en http://localhost:8000" -ForegroundColor Green
 } else {
@@ -65,7 +65,7 @@ npm install
 # Lanzar frontend
 Write-Host "`n Lanzando frontend..." -ForegroundColor Cyan
 Start-Process powershell -ArgumentList "cd frontend; npm run dev"
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 10
 if (Test-Port -Port 5173) {
     Write-Host "✅ Frontend corriendo en http://localhost:5173" -ForegroundColor Green
 } else {
