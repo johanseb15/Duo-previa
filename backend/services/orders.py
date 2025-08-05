@@ -197,3 +197,4 @@ class OrderService:
                     "count": {"$sum": 1}
                 }},
                 {"$sort": {"_id": 1}}
+            ]

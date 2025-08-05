@@ -64,7 +64,7 @@ npm install
 
 # Lanzar frontend
 Write-Host "`n Lanzando frontend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "cd frontend; npm run dev"
+Start-Process powershell -ArgumentList "npm run dev"
 Start-Sleep -Seconds 10
 if (Test-Port -Port 5173) {
     Write-Host "✅ Frontend corriendo en http://localhost:5173" -ForegroundColor Green
