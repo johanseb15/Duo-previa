@@ -1,75 +1,63 @@
-# setup.ps1
+Write-Host "`n Iniciando instalación limpia de Duo-previa..."
 
-function Test-Port {
-    param ([int]$Port)
-    $tcp = New-Object System.Net.Sockets.TcpClient
-    try {
-        $tcp.Connect("localhost", $Port)
-        $tcp.Close()
-        return $true
-    } catch {
-        return $false
-    }
+# Verificar Rust y Cargo
+Write-Host "`n Verificando instalación de Rust y Cargo..."
+if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
+    Write-Host "❌ Cargo no está instalado o no está en el PATH."
+    Write-Host "➡️ Instalalo desde https://rustup.rs y reiniciá PowerShell."
+    exit
+} else {
+    Write-Host "✅ Rust y Cargo están disponibles."
 }
-
-function Test-MongoConnection {
-    try {
-        $envVars = Get-Content "./backend/.env" | Where-Object { $_ -match "^MONGODB_URL=" }
-        $mongoUrl = $envVars -replace "MONGODB_URL=", ""
-        python -c "from motor.motor_asyncio import AsyncIOMotorClient; import asyncio; async def test(): client = AsyncIOMotorClient('$mongoUrl'); await client.server_info(); print('✅ MongoDB conectado'); asyncio.run(test())"
-        return $true
-    } catch {
-        Write-Host "❌ Error al conectar con MongoDB" -ForegroundColor Red
-        return $false
-    }
-}
-
-Write-Host " Iniciando instalación limpia de Duo-previa..." -ForegroundColor Cyan
 
 # Backend
-Write-Host "`n Instalando dependencias del backend..." -ForegroundColor Yellow
-cd backend
-pip install -r requirements.txt
+Write-Host "`n Instalando dependencias del backend..."
+if (Test-Path "backend") {
+    cd backend
+    if (Test-Path "requirements.txt") {
+        pip install -r requirements.txt
+    } else {
+        Write-Host "❌ No se encontró requirements.txt en backend."
+        exit
+    }
 
-# .env
-if (-Not (Test-Path ".env")) {
-    Write-Host "`n⚠️ backend/.env no encontrado. Creando desde .env.example..." -ForegroundColor Red
-    Copy-Item ".env.example" ".env"
+    # Verificar archivo .env
+    if (-not (Test-Path ".env")) {
+        Write-Host "⚠️ backend/.env no encontrado. Crealo manualmente si es necesario."
+    } else {
+        Write-Host "✅ backend/.env encontrado."
+    }
+
+    # Lanzar backend
+    Write-Host "`n Lanzando backend en puerto 8000..."
+    Start-Process powershell -ArgumentList "uvicorn main:app --reload --host 0.0.0.0 --port 8000" -WindowStyle Hidden
+    Start-Sleep -Seconds 5
+    cd ..
 } else {
-    Write-Host "`n✅ backend/.env encontrado." -ForegroundColor Green
+    Write-Host "❌ Carpeta 'backend' no encontrada."
+    exit
 }
-
-# Lanzar backend
-Write-Host "`n Lanzando backend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "cd backend; uvicorn main:app --reload --host 0.0.0.0 --port 8000"
-Start-Sleep -Seconds 10
-if (Test-Port -Port 8000) {
-    Write-Host "✅ Backend corriendo en http://localhost:8000" -ForegroundColor Green
-} else {
-    Write-Host "❌ Backend no respondió en el puerto 8000" -ForegroundColor Red
-}
-
-# MongoDB
-Write-Host "`n Verificando conexión a MongoDB..." -ForegroundColor Yellow
-Test-MongoConnection
-
-# Datos de ejemplo
-Write-Host "`n Inicializando datos de ejemplo..." -ForegroundColor Yellow
-python init_sample_data.py
 
 # Frontend
-Write-Host "`n Instalando dependencias del frontend..." -ForegroundColor Yellow
-cd ../frontend
-npm install
+Write-Host "`n Instalando dependencias del frontend..."
+if (Test-Path "frontend") {
+    cd frontend
+    if (Test-Path "package.json") {
+        npm install
+    } else {
+        Write-Host "❌ No se encontró package.json en frontend."
+        exit
+    }
 
-# Lanzar frontend
-Write-Host "`n Lanzando frontend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "cd frontend; npm run dev"
-Start-Sleep -Seconds 10
-if (Test-Port -Port 5173) {
-    Write-Host "✅ Frontend corriendo en http://localhost:5173" -ForegroundColor Green
+    Write-Host "`n Lanzando frontend en puerto 5173..."
+    Start-Process powershell -ArgumentList "npm run dev" -WindowStyle Hidden
+    Start-Sleep -Seconds 5
+    cd ..
 } else {
-    Write-Host "❌ Frontend no respondió en el puerto 5173" -ForegroundColor Red
+    Write-Host "❌ Carpeta 'frontend' no encontrada."
+    exit
 }
 
-Write-Host "`n Instalación completa. Duo-previa está corriendo." -ForegroundColor Cyan
+Write-Host "`n✅ Instalación completa. Duo-previa está corriendo."
+Write-Host " Backend: http://localhost:8000"
+Write-Host " Frontend: http://localhost:5173"
