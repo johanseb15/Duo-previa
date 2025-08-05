@@ -1,82 +1,43 @@
-$logFile = "setup.log"
-function Log {
-    param ([string]$message)
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    $entry = "$timestamp - $message"
-    Write-Host $message
-    Add-Content -Path $logFile -Value $entry
+# Verifica si Python está disponible
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+    Write-Host "`n❌ Python no se encontró. Por favor, instalá Python 3.x."
+    Write-Host " Puedes descargarlo desde: https://www.python.org/downloads/"
+    exit 1
 }
 
-Log "`n Iniciando instalación limpia de Duo-previa..."
+# Verifica si el archivo requirements.txt existe
+if (-not (Test-Path "backend/requirements.txt")) {
+    Write-Host "`n❌ El archivo 'backend/requirements.txt' no se encontró."
+    Write-Host " Asegurate de que el proyecto esté completo y que este archivo exista."
+    exit 1
+}
 
-# Verificar Rust y Cargo
-Log "`n Verificando instalación de Rust y Cargo..."
-if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
-    Log "❌ Cargo no está instalado o no está en el PATH."
-    Log "➡️ Instalalo desde https://rustup.rs y reiniciá PowerShell."
-    exit
+# Verifica si el compilador C++ está disponible
+if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {
+    Write-Host "`n❌ No se encontró el compilador C++ (cl.exe)."
+    Write-Host " Esto es necesario para compilar dependencias como aiohttp y pydantic-core."
+    Write-Host "`n➡️ Solución:"
+    Write-Host "1. Descargá los Build Tools desde: https://visualstudio.microsoft.com/visual-cpp-build-tools/"
+    Write-Host "2. Instalá el componente 'Desktop development with C++'."
+    Write-Host "3. Reiniciá tu computadora y volvé a ejecutar este script."
+    exit 1
+}
+
+Write-Host "`n✅ Compilador C++ detectado. Continuando con la instalación de dependencias..."
+
+# Activar entorno virtual si existe
+if (Test-Path ".venv") {
+    Write-Host " Activando entorno virtual..."
+    .\.venv\Scripts\Activate.ps1
 } else {
-    Log "✅ Rust y Cargo están disponibles."
+    Write-Host "⚠️ No se encontró el entorno virtual. Creando uno..."
+    python -m venv .venv
+    .\.venv\Scripts\Activate.ps1
 }
 
-# Backend
-Log "`n Instalando dependencias del backend..."
-if (Test-Path "backend") {
-    cd backend
-    if (Test-Path "requirements.txt") {
-        try {
-            pip install -r requirements.txt 2>&1 | Tee-Object -Variable pipOutput
-            $pipOutput | Add-Content -Path $logFile
-        } catch {
-            Log "❌ Error al instalar dependencias del backend: $_"
-            exit
-        }
-    } else {
-        Log "❌ No se encontró requirements.txt en backend."
-        exit
-    }
+# Instalar dependencias
+Write-Host "`n Instalando dependencias..."
+pip install --upgrade pip
+pip install -r backend/requirements.txt
 
-    if (-not (Test-Path ".env")) {
-        Log "⚠️ backend/.env no encontrado."
-    } else {
-        Log "✅ backend/.env encontrado."
-    }
-
-    Log "`n Lanzando backend..."
-    Start-Process powershell -ArgumentList "uvicorn main:app --reload --host 0.0.0.0 --port 8000" -WindowStyle Hidden
-    Start-Sleep -Seconds 5
-    cd ..
-} else {
-    Log "❌ Carpeta 'backend' no encontrada."
-    exit
-}
-
-# Frontend
-Log "`n Instalando dependencias del frontend..."
-if (Test-Path "frontend") {
-    cd frontend
-    if (Test-Path "package.json") {
-        try {
-            npm install 2>&1 | Tee-Object -Variable npmOutput
-            $npmOutput | Add-Content -Path $logFile
-        } catch {
-            Log "❌ Error al instalar dependencias del frontend: $_"
-            exit
-        }
-    } else {
-        Log "❌ No se encontró package.json en frontend."
-        exit
-    }
-
-    Log "`n Lanzando frontend..."
-    Start-Process powershell -ArgumentList "npm run dev" -WindowStyle Hidden
-    Start-Sleep -Seconds 5
-    cd ..
-} else {
-    Log "❌ Carpeta 'frontend' no encontrada."
-    exit
-}
-
-Log "`n✅ Instalación completa. Duo-previa está corriendo."
-Log " Backend: http://localhost:8000"
-Log " Frontend: http://localhost:5173"
+Write-Host "`n Instalación completada con éxito."
