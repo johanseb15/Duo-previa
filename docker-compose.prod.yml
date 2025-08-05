@@ -7,6 +7,7 @@ services:
       - MONGODB_URL=mongodb://mongo:27017/duo-previa
       - SECRET_KEY=${SECRET_KEY}
       - FRONTEND_URL=https://tudominio.com
+      - PORT=8080
     depends_on:
       - mongo
     networks:
