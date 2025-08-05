@@ -16,8 +16,8 @@ function Test-MongoConnection {
     try {
         $envVars = Get-Content "./backend/.env" | Where-Object { $_ -match "^MONGODB_URL=" }
         $mongoUrl = $envVars -replace "MONGODB_URL=", ""
-        python -c "from motor.motor_asyncio import AsyncIOMotorClient; import asyncio; async def test(): client = AsyncIOMotorClient('$mongoUrl'); await client.server_info(); print('✅ MongoDB conectado'); asyncio.run(test())"        
-return $true
+        python -c "from motor.motor_asyncio import AsyncIOMotorClient; import asyncio; async def test(): client = AsyncIOMotorClient('$mongoUrl'); await client.server_info(); print('✅ MongoDB conectado'); asyncio.run(test())"
+        return $true
     } catch {
         Write-Host "❌ Error al conectar con MongoDB" -ForegroundColor Red
         return $false
@@ -64,7 +64,7 @@ npm install
 
 # Lanzar frontend
 Write-Host "`n Lanzando frontend..." -ForegroundColor Cyan
-Start-Process powershell -ArgumentList "npm run dev"
+Start-Process powershell -ArgumentList "cd frontend; npm run dev"
 Start-Sleep -Seconds 10
 if (Test-Port -Port 5173) {
     Write-Host "✅ Frontend corriendo en http://localhost:5173" -ForegroundColor Green
