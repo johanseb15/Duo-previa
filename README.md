@@ -39,40 +39,15 @@ Este proyecto es una Progressive Web App (PWA) completa con un frontend en React
 └── README.md
 ```
 
-## Configuración del Entorno Local
+## Instalación
 
-Sigue estos pasos para configurar y ejecutar el proyecto localmente:
+Para obtener instrucciones detalladas sobre cómo configurar y ejecutar el proyecto en tu entorno local, consulta el archivo [`SETUP.md`](SETUP.md). Esta guía incluye:
 
-1.  **Clona el repositorio:**
-    ```bash
-    git clone https://github.com/johanseb15/Duo-previa.git
-    cd Duo-previa
-    ```
+-   Instrucciones para **Windows** (con un script de PowerShell automatizado) y **Linux/macOS**.
+-   Configuración de variables de entorno.
+-   Inicialización de datos de ejemplo.
+-   Ejecución de pruebas.
 
-2.  **Ejecuta el script de configuración inicial:**
-    Este script instalará todas las dependencias necesarias para el frontend y el backend.
-    ```bash
-    # En Linux/macOS, asegúrate de que sea ejecutable:
-    # chmod +x setup.sh
-    ./setup.sh
-    ```
-
-3.  **Configura las variables de entorno:**
-    Crea un archivo `.env` en la carpeta `backend/` y configura las variables de entorno necesarias para la conexión a la base de datos y otros servicios. Puedes usar `backend/.env.example` como referencia.
-
-4.  **Inicia el Backend:**
-    ```bash
-    cd backend
-    uvicorn main:app --reload --host 0.0.0.0 --port 8000
-    ```
-
-5.  **Inicia el Frontend:**
-    ```bash
-    cd frontend
-    npm run dev
-    ```
-
-Para una configuración más detallada, incluyendo la inicialización de datos de ejemplo y la ejecución de pruebas, consulta el archivo `SETUP.md` en la raíz del proyecto.
 
 ## Despliegue Continuo (CI/CD) con GitHub Actions
 
