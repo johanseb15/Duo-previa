@@ -3,7 +3,7 @@ import axios from 'axios';
 // Configuración dinámica para producción/desarrollo
 const baseURL = process.env.NODE_ENV === 'production' 
   ? '/api' 
-  : 'http://localhost:5000/api';
+  : 'http://localhost:8000/api';
 
 const api = axios.create({
   baseURL,
